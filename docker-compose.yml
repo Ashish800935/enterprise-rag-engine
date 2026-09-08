@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # 1. Database: PostgreSQL with pgvector extension enabled
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: rag_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rag_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-rag_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Backend: FastAPI Service for Ingestion, Vector Search & RAG
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_password}@db:5432/${POSTGRES_DB:-rag_db}
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - CHUNK_SIZE=500
+      - CHUNK_OVERLAP=50
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+
+  # 3. Frontend: Interactive Streamlit UI Dashboard
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rag_frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      - BACKEND_API_URL=http://backend:8000
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./frontend:/app
+
+volumes:
+  postgres_data:
