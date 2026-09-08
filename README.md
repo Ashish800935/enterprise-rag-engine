@@ -214,7 +214,7 @@ For an in-depth breakdown of architectural trade-offs, vector distance mathemati
 ---
 
 ## 👨‍💻 Author
-**Asheesh**
+**Asheesh Kumar**
 * GitHub: [@Ashish800935](https://github.com/Ashish800935)
 
 ---
