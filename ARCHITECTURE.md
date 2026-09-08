@@ -33,7 +33,7 @@ This document outlines the architectural trade-offs, engineering decisions, and 
 ### 5. Chunking Strategy & Overlap Tuning
 * **Chunk Size (500 characters):** Small chunks (e.g. 100 chars) lose contextual meaning; overly large chunks (e.g. 2000+ chars) dilute semantic vector representations and increase token overhead. 500 characters balances high semantic specificity with adequate context.
 * **Sliding Window Overlap (50 characters):** Eliminates boundary context loss. If a sentence or causal explanation spans across chunk boundaries, overlap ensures that both neighboring chunks contain enough context for retrieval.
-* **Boundary-Aware Splitting:** Custom sliding window implementation prioritizes natural sentence breaks (`. `, `? `, `! `, `\n`) and word boundaries over abrupt character cuts.
+* **Boundary-Aware Splitting:** Powered by LangChain's `RecursiveCharacterTextSplitter`, prioritizing natural semantic breaks (`\n\n`, `\n`, `" "`, `""`) and word boundaries over abrupt character cuts to preserve semantic cohesion.
 
 ---
 
