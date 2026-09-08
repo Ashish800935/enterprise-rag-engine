@@ -100,3 +100,24 @@ To scale this architecture to tens of millions of documents:
 2. **Embedding Cache:** Implement Redis caching for frequent queries and common question-answer pairs.
 3. **Decoupled Ingestion Pipeline:** Separate ingestion from the API server using a message broker (RabbitMQ / Kafka / Celery), processing chunking and vector embeddings across distributed background workers.
 4. **Partitioning:** Implement table partitioning by tenant or category to limit vector search scope.
+
+---
+
+### 16. LangChain Integration: LCEL & Pydantic Structured Output
+* **Procedural vs. Declarative (LCEL):** Traditional RAG implementations use scattered procedural code to assemble prompts, invoke models, and parse strings. LangChain Expression Language (LCEL) formalizes this pipeline as a declarative, unified graph:
+  $$\text{Pipeline} = \text{ChatPromptTemplate} \longrightarrow \text{ChatModel} \longrightarrow \text{PydanticOutputParser}$$
+* **Structured Output Schema:** Rather than returning raw unformatted strings, the pipeline enforces a strongly-typed JSON schema (`StructuredRAGOutput`):
+  - `answer`: Grounded synthesis string.
+  - `confidence_score`: Metric from $0.0$ to $1.0$ expressing context grounding.
+  - `citations`: List of verified references containing filename, chunk index, and verbatim quote excerpts.
+  - `suggested_followups`: 3 intelligently generated questions enabling interactive user workflows.
+
+---
+
+### 17. Agentic RAG: Dynamic Tool Calling & ReAct Execution
+* **Why Autonomous Agents:** Fixed RAG pipelines assume every user prompt is a document search query. Real-world users frequently ask metadata queries (*"How many files are indexed?"*), conversational prompts, or queries exceeding internal documents.
+* **Specialized Tools:**
+  1. `search_knowledge_base`: Hybrid cosine vector retrieval against PostgreSQL `pgvector`.
+  2. `get_document_stats`: Live SQL query reporting total documents, chunks, and storage statistics.
+  3. `web_search_fallback`: Live DuckDuckGo web search when context is absent from internal data.
+* **Reasoning Traceability:** The agent records every step (`Thought`, `Tool Name`, `Tool Input`, `Tool Output`) before formulating the final answer, ensuring 100% transparency and auditability for enterprise compliance.

@@ -21,11 +21,36 @@ st.markdown("""
         padding: 12px;
         border: 1px solid #333;
     }
-    .stAlert {
-        border-radius: 8px;
+    .badge-high {
+        background-color: #198754;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: 600;
+    }
+    .badge-mid {
+        background-color: #fd7e14;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: 600;
+    }
+    .badge-low {
+        background-color: #dc3545;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Initialize Session State
+if "search_query" not in st.session_state:
+    st.session_state.search_query = ""
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
@@ -49,12 +74,12 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Choose a file (.txt, .md, .pdf)",
         type=["txt", "md", "pdf"],
-        help="Documents are chunked, embedded into 384-d vectors, and indexed in PostgreSQL (pgvector)."
+        help="Documents are split using LangChain's RecursiveCharacterTextSplitter, embedded into 384-d vectors, and indexed in PostgreSQL (pgvector)."
     )
 
     if uploaded_file is not None:
         if st.button("🚀 Ingest & Index", use_container_width=True):
-            with st.spinner("Chunking text & generating dense embeddings..."):
+            with st.spinner("LangChain Text Splitting & Dense Embedding..."):
                 files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
                 try:
                     res = requests.post(f"{API_BASE}/documents/upload", files=files)
@@ -90,57 +115,154 @@ with st.sidebar:
 
 # ----------------- MAIN QUERY CANVAS -----------------
 st.title("🧠 Enterprise Hybrid-RAG Engine")
-st.caption("Containerized Production Retrieval-Augmented Generation with PostgreSQL `pgvector`, FastAPI & Streamlit")
+st.caption("PostgreSQL `pgvector` + FastAPI + LangChain LCEL & ReAct Tools")
+
+# Mode Switcher
+mode = st.radio(
+    "Select Query Pipeline Mode:",
+    [
+        "🌟 LangChain Structured RAG (LCEL)",
+        "🤖 LangChain Agentic Mode (Tools)",
+        "⚡ Standard Direct RAG"
+    ],
+    horizontal=True
+)
 
 col1, col2 = st.columns([3, 1])
 with col1:
     query = st.text_input(
         "Ask a question grounded in your uploaded documents:",
-        placeholder="e.g., What are the key findings in the annual report?"
+        value=st.session_state.search_query,
+        placeholder="e.g., What are the key findings in Section 3? Or ask agent: 'How many documents exist?'"
     )
 with col2:
     top_k = st.slider("Context Chunks (Top-K)", min_value=1, max_value=8, value=4)
     use_hybrid = st.checkbox("Hybrid Retrieval (Keyword Boost)", value=True)
 
-if st.button("🔎 Run Grounded Query", type="primary", use_container_width=True):
+if st.button("🔎 Execute Query", type="primary", use_container_width=True):
     if not query.strip():
         st.warning("Please enter a question.")
     else:
-        with st.spinner("Executing vector similarity search & LLM synthesis..."):
-            try:
-                payload = {
-                    "query": query,
-                    "top_k": top_k,
-                    "use_hybrid": use_hybrid
-                }
-                res = requests.post(f"{API_BASE}/query", json=payload)
-                if res.status_code == 200:
-                    data = res.json()
-                    
-                    # Latency Telemetry
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("Retrieval Latency", f"{data['retrieval_latency_ms']} ms")
-                    m2.metric("Total Latency", f"{data['total_latency_ms']} ms")
-                    m3.metric("Chunks Retrieved", len(data['sources']))
+        # ================= MODE 1: LANGCHAIN STRUCTURED RAG =================
+        if "Structured RAG" in mode:
+            with st.spinner("Executing LangChain LCEL Chain & Pydantic Structured Output..."):
+                try:
+                    payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
+                    res = requests.post(f"{API_BASE}/query/structured", json=payload)
+                    if res.status_code == 200:
+                        data = res.json()
+                        conf = data["confidence_score"]
+                        
+                        # Metrics Row
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("Retrieval Latency", f"{data['retrieval_latency_ms']} ms")
+                        m2.metric("Total Latency", f"{data['total_latency_ms']} ms")
+                        
+                        conf_pct = int(conf * 100)
+                        if conf >= 0.7:
+                            m3.metric("Grounding Confidence", f"{conf_pct}%", delta="High Grounding", delta_color="normal")
+                        elif conf >= 0.4:
+                            m3.metric("Grounding Confidence", f"{conf_pct}%", delta="Moderate Grounding", delta_color="off")
+                        else:
+                            m3.metric("Grounding Confidence", f"{conf_pct}%", delta="Low Grounding", delta_color="inverse")
 
-                    st.divider()
+                        st.divider()
 
-                    # Answer Section
-                    st.subheader("💡 Grounded Answer")
-                    st.markdown(data["answer"])
+                        # Answer Section
+                        st.subheader("💡 Grounded Answer (LCEL Synthesized)")
+                        st.markdown(data["answer"])
 
-                    st.divider()
+                        st.divider()
 
-                    # Citations and Vector Inspector
-                    st.subheader("🔍 Retrieved Context Chunks & Similarity Inspector")
-                    st.caption("Inspect the exact source chunks retrieved from PostgreSQL pgvector with their cosine similarity scores:")
-                    
-                    for idx, src in enumerate(data["sources"], start=1):
-                        score_pct = round(src["similarity_score"] * 100, 1)
-                        with st.expander(f"Chunk #{src['chunk_index']} from `{src['filename']}` — Match Score: {score_pct}%"):
-                            st.markdown(f"**Document ID:** `{src['document_id']}` | **Chunk ID:** `{src['chunk_id']}`")
-                            st.info(src["content"])
-                else:
-                    st.error(f"Backend returned error: {res.text}")
-            except Exception as e:
-                st.error(f"Could not reach backend API: {e}")
+                        # Citations
+                        st.subheader("📑 Structured Citations")
+                        if data.get("citations"):
+                            for idx, cit in enumerate(data["citations"], 1):
+                                with st.expander(f"Citation #{idx}: `{cit['filename']}` (Chunk #{cit['chunk_index']})"):
+                                    st.info(f"**Verbatim Quote:** \"{cit['exact_quote']}\"")
+                        else:
+                            st.caption("No specific citations generated.")
+
+                        # Suggested Follow-up Questions
+                        if data.get("suggested_followups"):
+                            st.divider()
+                            st.subheader("💡 Suggested Follow-up Questions")
+                            for follow_up in data["suggested_followups"]:
+                                if st.button(f"👉 {follow_up}", key=f"fup_{follow_up}"):
+                                    st.session_state.search_query = follow_up
+                                    st.rerun()
+                    else:
+                        st.error(f"Backend returned error: {res.text}")
+                except Exception as e:
+                    st.error(f"Could not reach backend API: {e}")
+
+        # ================= MODE 2: LANGCHAIN AGENTIC MODE =================
+        elif "Agentic Mode" in mode:
+            with st.spinner("LangChain ReAct Agent reasoning and executing tools..."):
+                try:
+                    payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
+                    res = requests.post(f"{API_BASE}/query/agent", json=payload)
+                    if res.status_code == 200:
+                        data = res.json()
+                        
+                        # Metrics Row
+                        m1, m2 = st.columns(2)
+                        m1.metric("Execution Latency", f"{data['latency_ms']} ms")
+                        m2.metric("Agent Steps Completed", data["total_steps"])
+
+                        st.divider()
+
+                        # Tools Invoked
+                        st.subheader("🛠️ Tools Selected by Agent")
+                        if data.get("tools_used"):
+                            st.write(" ".join([f"`{t}`" for t in data["tools_used"]]))
+                        else:
+                            st.write("*Direct reasoning (no external tools required)*")
+
+                        # Reasoning Trail
+                        if data.get("steps"):
+                            with st.expander("🔍 View Agent Thought Process & Tool Execution Trail", expanded=True):
+                                for s in data["steps"]:
+                                    st.markdown(f"**Step {s['step_number']} - Thought:** {s['thought']}")
+                                    st.markdown(f"- **Tool Called:** `{s['tool_name']}`")
+                                    st.markdown(f"- **Input:** `{s['tool_input']}`")
+                                    st.info(f"**Tool Output:** {s['tool_output']}")
+                                    st.markdown("---")
+
+                        # Final Answer
+                        st.subheader("🤖 Final Agent Answer")
+                        st.markdown(data["final_answer"])
+                    else:
+                        st.error(f"Backend returned error: {res.text}")
+                except Exception as e:
+                    st.error(f"Could not reach backend API: {e}")
+
+        # ================= MODE 3: STANDARD DIRECT RAG =================
+        else:
+            with st.spinner("Executing vector similarity search & LLM synthesis..."):
+                try:
+                    payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
+                    res = requests.post(f"{API_BASE}/query", json=payload)
+                    if res.status_code == 200:
+                        data = res.json()
+                        
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("Retrieval Latency", f"{data['retrieval_latency_ms']} ms")
+                        m2.metric("Total Latency", f"{data['total_latency_ms']} ms")
+                        m3.metric("Chunks Retrieved", len(data['sources']))
+
+                        st.divider()
+                        st.subheader("💡 Grounded Answer")
+                        st.markdown(data["answer"])
+
+                        st.divider()
+                        st.subheader("🔍 Retrieved Context Chunks & Similarity Inspector")
+                        for idx, src in enumerate(data["sources"], start=1):
+                            score_pct = round(src["similarity_score"] * 100, 1)
+                            with st.expander(f"Chunk #{src['chunk_index']} from `{src['filename']}` — Match Score: {score_pct}%"):
+                                st.markdown(f"**Document ID:** `{src['document_id']}` | **Chunk ID:** `{src['chunk_id']}`")
+                                st.info(src["content"])
+                    else:
+                        st.error(f"Backend returned error: {res.text}")
+                except Exception as e:
+                    st.error(f"Could not reach backend API: {e}")

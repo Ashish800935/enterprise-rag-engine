@@ -14,12 +14,18 @@ from src.api.schemas import (
     QueryRequest,
     QueryResponse,
     ChunkSource,
-    HealthResponse
+    HealthResponse,
+    StructuredQueryResponse,
+    StructuredCitation,
+    AgentQueryResponse,
+    AgentStepSchema
 )
 from src.services.chunking import recursive_character_chunking
 from src.services.embedding import embedding_service
 from src.services.retrieval import RetrievalService
 from src.services.generator import generate_answer
+from src.services.langchain_rag import run_structured_rag
+from src.services.langchain_agent import run_langchain_agent
 from src.config import settings
 
 router = APIRouter()
@@ -46,8 +52,8 @@ async def upload_document(
     db: Session = Depends(get_db)
 ):
     """
-    Ingests, chunks, embeds, and stores documents in PostgreSQL (pgvector).
-    Supports .txt, .md, and .pdf files.
+    Ingests, chunks using LangChain's RecursiveCharacterTextSplitter,
+    embeds via SentenceTransformers, and stores vectors transactionally in PostgreSQL (pgvector).
     """
     filename = file.filename or "unknown.txt"
     content_bytes = await file.read()
@@ -77,7 +83,7 @@ async def upload_document(
     if not raw_text.strip():
         raise HTTPException(status_code=400, detail="Could not extract readable text from document.")
 
-    # 2. Chunk text with overlapping sliding window
+    # 2. Chunk text with LangChain's RecursiveCharacterTextSplitter
     chunk_texts = recursive_character_chunking(
         raw_text,
         chunk_size=settings.CHUNK_SIZE,
@@ -135,14 +141,11 @@ def delete_document(document_id: int, db: Session = Depends(get_db)):
 @router.post("/query", response_model=QueryResponse, tags=["RAG Pipeline"])
 def query_knowledge_base(request: QueryRequest, db: Session = Depends(get_db)):
     """
-    End-to-end RAG Query:
-    1. Retrieves top-k semantically relevant chunks from pgvector
-    2. Constructs grounded prompt with source citations
-    3. Synthesizes verifiable answer
+    Standard RAG Query (High-performance baseline):
+    Retrieves top-k semantically relevant chunks from pgvector and returns answer + sources.
     """
     total_start = time.time()
     
-    # Retrieval Phase
     retrieval_start = time.time()
     if request.use_hybrid:
         retrieved_chunks = RetrievalService.hybrid_search(db, request.query, top_k=request.top_k)
@@ -150,8 +153,6 @@ def query_knowledge_base(request: QueryRequest, db: Session = Depends(get_db)):
         retrieved_chunks = RetrievalService.vector_search(db, request.query, top_k=request.top_k)
     
     retrieval_ms = round((time.time() - retrieval_start) * 1000, 2)
-
-    # Generation Phase
     answer = generate_answer(request.query, retrieved_chunks)
     total_ms = round((time.time() - total_start) * 1000, 2)
 
@@ -173,4 +174,78 @@ def query_knowledge_base(request: QueryRequest, db: Session = Depends(get_db)):
         sources=sources,
         retrieval_latency_ms=retrieval_ms,
         total_latency_ms=total_ms
+    )
+
+@router.post("/query/structured", response_model=StructuredQueryResponse, tags=["LangChain Integration"])
+def query_structured_rag(request: QueryRequest, db: Session = Depends(get_db)):
+    """
+    LangChain LCEL Structured Output RAG:
+    Executes LCEL chain with Pydantic output parsing.
+    Returns: Verified Answer, Confidence Score (0.0 - 1.0), Exact Citations, and 3 Smart Follow-up Questions.
+    """
+    total_start = time.time()
+    
+    # 1. Vector Retrieval
+    retrieval_start = time.time()
+    if request.use_hybrid:
+        retrieved_chunks = RetrievalService.hybrid_search(db, request.query, top_k=request.top_k)
+    else:
+        retrieved_chunks = RetrievalService.vector_search(db, request.query, top_k=request.top_k)
+    retrieval_ms = round((time.time() - retrieval_start) * 1000, 2)
+
+    # 2. LangChain LCEL Chain Execution
+    structured_output = run_structured_rag(request.query, retrieved_chunks)
+    total_ms = round((time.time() - total_start) * 1000, 2)
+
+    citations = [
+        StructuredCitation(
+            filename=c.filename,
+            chunk_index=c.chunk_index,
+            exact_quote=c.exact_quote
+        )
+        for c in structured_output.citations
+    ]
+
+    return StructuredQueryResponse(
+        query=request.query,
+        answer=structured_output.answer,
+        confidence_score=structured_output.confidence_score,
+        citations=citations,
+        suggested_followups=structured_output.suggested_followups,
+        retrieval_latency_ms=retrieval_ms,
+        total_latency_ms=total_ms
+    )
+
+@router.post("/query/agent", response_model=AgentQueryResponse, tags=["LangChain Integration"])
+def query_agentic_mode(request: QueryRequest, db: Session = Depends(get_db)):
+    """
+    LangChain Agentic Mode with Tools:
+    Autonomous agent equipped with:
+    - search_knowledge_base (RAG retriever tool)
+    - get_document_stats (Metadata/Stats tool)
+    - web_search_fallback (Live Web Search tool)
+    Returns step-by-step reasoning steps and final answer.
+    """
+    total_start = time.time()
+    agent_output = run_langchain_agent(db, request.query)
+    total_ms = round((time.time() - total_start) * 1000, 2)
+
+    steps = [
+        AgentStepSchema(
+            step_number=s.step_number,
+            thought=s.thought,
+            tool_name=s.tool_name,
+            tool_input=s.tool_input,
+            tool_output=s.tool_output
+        )
+        for s in agent_output.steps
+    ]
+
+    return AgentQueryResponse(
+        query=request.query,
+        final_answer=agent_output.final_answer,
+        tools_used=agent_output.tools_used,
+        steps=steps,
+        total_steps=agent_output.total_steps,
+        latency_ms=total_ms
     )

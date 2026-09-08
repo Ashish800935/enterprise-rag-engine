@@ -1,13 +1,14 @@
-# Enterprise Hybrid-RAG Engine with PostgreSQL (pgvector) & FastAPI
+# Enterprise Hybrid-RAG Engine with PostgreSQL (pgvector), FastAPI & LangChain
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688.svg)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20+%20pgvector-336791.svg)](https://github.com/pgvector/pgvector)
+[![LangChain](https://img.shields.io/badge/LangChain-1.4%20(LCEL)-1C3C3C.svg)](https://www.langchain.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.32-FF4B4B.svg)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A production-ready, containerized **Hybrid-RAG (Retrieval-Augmented Generation)** knowledge system built using **FastAPI**, **PostgreSQL (`pgvector`)**, and **Streamlit**. Engineered with an emphasis on low-latency vector search, anti-hallucination prompt constraints, and full containerized orchestration.
+A production-ready, containerized **Hybrid-RAG (Retrieval-Augmented Generation)** knowledge system built using **FastAPI**, **PostgreSQL (`pgvector`)**, **LangChain (LCEL & ReAct Tools)**, and **Streamlit**. Engineered with an emphasis on low-latency vector search, Pydantic structured output parsing, anti-hallucination prompt constraints, and autonomous tool calling.
 
 ---
 
@@ -15,23 +16,27 @@ A production-ready, containerized **Hybrid-RAG (Retrieval-Augmented Generation)*
 
 ```mermaid
 graph TD
-    User([Client / Streamlit UI]) -->|Upload PDF/TXT/MD| API[FastAPI Backend Engine]
-    User -->|Submit Natural Language Query| API
+    User([Client / Streamlit UI]) -->|1. Upload PDF/TXT/MD| API[FastAPI Backend Engine]
+    User -->|2. Natural Language Query| API
     
     subgraph Ingestion Pipeline
-        API -->|1. Overlapping Split| Chunker[Semantic Chunker (500 chars, 50 overlap)]
-        Chunker -->|2. Batch Embedding| Model[SentenceTransformers: all-MiniLM-L6-v2]
-        Model -->|3. Store Vectors| PG[(PostgreSQL + pgvector HNSW Index)]
+        API -->|3. LangChain Splitter| Chunker[RecursiveCharacterTextSplitter]
+        Chunker -->|4. Batch Embedding| Model[SentenceTransformers: all-MiniLM-L6-v2]
+        Model -->|5. Store Vectors| PG[(PostgreSQL + pgvector HNSW Index)]
     end
     
     subgraph Retrieval & Synthesis
-        API -->|4. Vector Cosine Distance + Keyword Match| PG
-        PG -->|5. Top-K Ranked Chunks| Reranker[Context Filter & Scoring]
-        Reranker -->|6. Grounded Prompt Injection| LLM[LLM Synthesizer]
-        LLM -->|7. Verified Answer + Citations| API
+        API -->|6. Cosine Distance + Keyword Match| PG
+        PG -->|7. Top-K Ranked Chunks| Reranker[Context Filter & Scoring]
+        
+        Reranker -->|8a. LCEL Structured Chain| LCEL[LangChain LCEL Pipeline]
+        LCEL -->|Structured Output| Parser[PydanticOutputParser: Answer + Confidence + Quotes + Follow-ups]
+        
+        Reranker -->|8b. Autonomous Agent| Agent[LangChain Tool-Calling Agent]
+        Agent -->|Invoke Tool| Tools[Tools: KB Search / DB Stats / Web Fallback]
     end
     
-    API -->|8. Answer with Latency Metrics & Sources| User
+    API -->|9. Rich Grounded Output with Citations| User
 ```
 
 ---
@@ -39,20 +44,29 @@ graph TD
 ## 🌟 Key Engineering Features
 
 1. **Native PostgreSQL Vector Storage (`pgvector`)**:
-   - Eliminates the need for external vector databases (Pinecone/Milvus).
+   - Eliminates external vector database dependencies (Pinecone/Milvus).
    - Relational document metadata and 384-dimensional dense vectors live in the same ACID-compliant database.
    - Utilizes **HNSW (Hierarchical Navigable Small World)** indexing for sub-millisecond approximate nearest neighbor search.
 
-2. **Hybrid Retrieval (Dense + Sparse Boost)**:
-   - Combines dense semantic vector search (`<=>` cosine distance operator) with sparse lexical keyword boosting.
-   - Prevents vector search blind spots on exact identifiers, codes, and acronyms.
+2. **LangChain Text Splitting (`RecursiveCharacterTextSplitter`)**:
+   - Boundary-aware recursive chunking prioritizing paragraphs, sentences, and word boundaries with sliding overlap (500 chars, 50 overlap).
 
-3. **Grounded Synthesis & Source Attribution**:
-   - Strict system prompts forcing responses to be grounded in retrieved chunks.
-   - Explicit citation tracking: every statement maps back to its specific document filename, chunk index, and similarity score.
+3. **LCEL Declarative Pipeline with Pydantic Structured Output**:
+   - Declarative chain: `ChatPromptTemplate | ChatModel | PydanticOutputParser`.
+   - Returns verified grounding confidence score (0.0 to 1.0), verbatim citation quotes, and 3 intelligent follow-up questions.
 
-4. **Production Containerization**:
-   - Fully automated multi-container orchestration with `docker-compose.yml` (Postgres, FastAPI, Streamlit).
+4. **Agentic RAG Mode with LangChain Tools (`@tool`)**:
+   - Equips the system with an autonomous tool-calling agent capable of routing queries between:
+     - `search_knowledge_base`: Vector cosine retrieval against enterprise documents.
+     - `get_document_stats`: Live metadata queries (document counts, chunk totals, indexed file list).
+     - `web_search_fallback`: Dynamic internet search via DuckDuckGo for out-of-domain queries.
+   - Captures and visualizes full step-by-step reasoning steps (`Thought -> Tool -> Output`).
+
+5. **Hybrid Retrieval (Dense + Sparse Boost)**:
+   - Combines dense semantic vector search (`<=>` cosine distance operator) with sparse lexical keyword boosting to prevent acronym and ID blind spots.
+
+6. **Production Containerization**:
+   - Multi-container orchestration with `docker-compose.yml` (Postgres, FastAPI, Streamlit).
 
 ---
 
@@ -67,7 +81,7 @@ enterprise-rag-engine/
 ├── ARCHITECTURE.md              # Technical architecture & design decisions
 ├── backend/
 │   ├── Dockerfile
-│   ├── requirements.txt
+│   ├── requirements.txt         # FastAPI, LangChain, pgvector, PyPDF, etc.
 │   └── src/
 │       ├── main.py              # FastAPI app with lifespan startup
 │       ├── config.py            # Pydantic settings
@@ -75,17 +89,19 @@ enterprise-rag-engine/
 │       │   ├── session.py       # SQLAlchemy engine & pgvector initialization
 │       │   └── models.py        # Document & DocumentChunk with HNSW Vector index
 │       ├── services/
-│       │   ├── chunking.py      # Recursive sliding-window chunker
+│       │   ├── chunking.py      # LangChain RecursiveCharacterTextSplitter
 │       │   ├── embedding.py     # Singleton SentenceTransformers embedder
 │       │   ├── retrieval.py     # Cosine distance vector & hybrid search
-│       │   └── generator.py     # Grounded response synthesis
+│       │   ├── generator.py     # Deterministic baseline synthesizer
+│       │   ├── langchain_rag.py # LCEL Chain with Pydantic Structured Output
+│       │   └── langchain_agent.py # LangChain Tools & ReAct Tool-Calling Agent
 │       └── api/
 │           ├── schemas.py       # Pydantic request/response models
-│           └── routes.py        # Ingestion, Query, and Health endpoints
+│           └── routes.py        # Ingestion, Query, Structured, and Agent endpoints
 └── frontend/
     ├── Dockerfile
     ├── requirements.txt
-    └── app.py                   # Streamlit UI with vector inspector
+    └── app.py                   # Streamlit UI (Structured RAG, Agentic, & Direct modes)
 ```
 
 ---
@@ -143,44 +159,57 @@ streamlit run app.py
 ## 📡 API Reference
 
 ### `POST /api/v1/documents/upload`
-Uploads and indexes a document (`.txt`, `.md`, `.pdf`).
-* **Request:** Multipart Form-Data (`file`).
-* **Response:** Document metadata with `total_chunks` generated.
+Uploads, parses (`.txt`, `.md`, `.pdf`), chunks via LangChain `RecursiveCharacterTextSplitter`, and embeds into PostgreSQL.
 
-### `POST /api/v1/query`
-Executes hybrid vector retrieval and returns grounded answer.
-* **Request Body:**
-  ```json
-  {
-    "query": "What are the main findings in Section 3?",
-    "top_k": 4,
-    "use_hybrid": true
-  }
-  ```
-* **Response:**
-  ```json
-  {
-    "query": "What are the main findings in Section 3?",
-    "answer": "...",
-    "sources": [
-      {
-        "chunk_id": 12,
-        "document_id": 1,
-        "filename": "annual_report.pdf",
-        "chunk_index": 3,
-        "similarity_score": 0.884,
-        "content": "..."
-      }
-    ],
-    "retrieval_latency_ms": 14.2,
-    "total_latency_ms": 820.5
-  }
-  ```
+### `POST /api/v1/query/structured`
+Executes LangChain LCEL chain and returns Pydantic structured output:
+```json
+{
+  "query": "What are the revenue numbers in Q3?",
+  "answer": "Q3 revenue reached $4.2 million, representing a 14% YoY increase.",
+  "confidence_score": 0.94,
+  "citations": [
+    {
+      "filename": "q3_report.pdf",
+      "chunk_index": 2,
+      "exact_quote": "Third-quarter consolidated revenue reached $4.2 million..."
+    }
+  ],
+  "suggested_followups": [
+    "What contributed to the 14% YoY increase?",
+    "What were the corresponding Q3 operating expenses?",
+    "What are the projected estimates for Q4?"
+  ],
+  "retrieval_latency_ms": 11.4,
+  "total_latency_ms": 642.1
+}
+```
+
+### `POST /api/v1/query/agent`
+Executes LangChain Autonomous Agent with Tool Calling (`search_knowledge_base`, `get_document_stats`, `web_search_fallback`) and returns execution telemetry:
+```json
+{
+  "query": "How many documents are uploaded and what are they?",
+  "final_answer": "There are 2 documents uploaded: annual_report.pdf and policy.md.",
+  "tools_used": ["get_document_stats"],
+  "steps": [
+    {
+      "step_number": 1,
+      "thought": "Detected query regarding knowledge base statistics. Selecting 'get_document_stats'.",
+      "tool_name": "get_document_stats",
+      "tool_input": "{}",
+      "tool_output": "Total Ingested Documents: 2..."
+    }
+  ],
+  "total_steps": 1,
+  "latency_ms": 45.3
+}
+```
 
 ---
 
 ## 📖 Deep Dive & System Design
-For an in-depth breakdown of architectural trade-offs, vector distance mathematics, HNSW indexing parameters, and scaling strategies, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For an in-depth breakdown of architectural trade-offs, vector distance mathematics, HNSW indexing parameters, LCEL declarative design, and scaling strategies, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 

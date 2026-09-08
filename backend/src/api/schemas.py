@@ -33,6 +33,37 @@ class QueryResponse(BaseModel):
     retrieval_latency_ms: float
     total_latency_ms: float
 
+# --- LangChain Structured Output Models ---
+class StructuredCitation(BaseModel):
+    filename: str
+    chunk_index: int
+    exact_quote: str
+
+class StructuredQueryResponse(BaseModel):
+    query: str
+    answer: str
+    confidence_score: float
+    citations: List[StructuredCitation]
+    suggested_followups: List[str]
+    retrieval_latency_ms: float
+    total_latency_ms: float
+
+# --- LangChain Agent Models ---
+class AgentStepSchema(BaseModel):
+    step_number: int
+    thought: str
+    tool_name: str
+    tool_input: str
+    tool_output: str
+
+class AgentQueryResponse(BaseModel):
+    query: str
+    final_answer: str
+    tools_used: List[str]
+    steps: List[AgentStepSchema]
+    total_steps: int
+    latency_ms: float
+
 class HealthResponse(BaseModel):
     status: str
     database: str
