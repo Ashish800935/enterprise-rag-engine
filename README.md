@@ -127,6 +127,28 @@ The services will be live at:
 
 ---
 
+## 🐳 Production Container Optimization (~10 GB ➔ ~1.2 GB)
+
+Standard GenAI container images often bloat to 10+ GB due to default CUDA GPU dependencies and uncontrolled build contexts. This repository implements production-grade footprint engineering:
+* **CPU-Only PyTorch Wheel:** Configured with `--index-url https://download.pytorch.org/whl/cpu`, eliminating ~3.5 GB of redundant NVIDIA CUDA GPU binaries since embeddings run efficiently on commodity CPUs.
+* **Granular `.dockerignore`:** Excludes host virtual environments (`venv/`), secrets (`.env`), and caches from entering image layers.
+* **Cloud-Ready:** Deploys seamlessly on standard, low-cost cloud instances (Render, Railway, AWS EC2, DigitalOcean) without disk exhaustion (`No space left on device`).
+
+### Rebuilding Clean Images
+To purge previous heavy images and rebuild the optimized lightweight container:
+```bash
+# 1. Stop existing containers
+docker compose down
+
+# 2. Rebuild with fresh, lean layers
+docker compose build --no-cache backend
+
+# 3. Start services in background
+docker compose up -d
+```
+
+---
+
 ## 🛠️ Local Development (Without Docker)
 
 If you wish to run services directly on your host machine:

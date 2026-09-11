@@ -1,0 +1,20 @@
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment & local secrets
+.env
+.env.*
+
+# Version control & IDE
+.git/
+.gitignore
+.vscode/
+.idea/

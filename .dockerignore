@@ -1,0 +1,25 @@
+# Exclude local venvs
+**/venv/
+**/.venv/
+**/env/
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+
+# Git & IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Environment files
+**/.env
+**/.env.*
+!**/.env.example
+
+# Documentation & logs
+*.log
