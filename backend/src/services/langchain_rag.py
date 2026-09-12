@@ -87,7 +87,7 @@ def run_structured_rag(query: str, retrieved_chunks: List[Dict[str, Any]]) -> St
     if settings.GEMINI_API_KEY:
         try:
             llm = ChatGoogleGenerativeAI(
-                model="gemini-3.5-flash",
+                model="gemini-1.5-flash",
                 google_api_key=settings.GEMINI_API_KEY,
                 temperature=0.1,
                 max_retries=2
