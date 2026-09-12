@@ -2,7 +2,12 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from src.config import settings
 
-db_url = settings.DATABASE_URL
+raw_url = str(settings.DATABASE_URL).strip().strip('"').strip("'")
+# Strip potential environment variable key prefixes if copied from .env file
+if "=" in raw_url and not raw_url.startswith("postgresql") and not raw_url.startswith("postgres"):
+    raw_url = raw_url.split("=", 1)[1].strip().strip('"').strip("'")
+
+db_url = raw_url
 if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
     db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 elif db_url.startswith("postgres://"):
