@@ -2,8 +2,14 @@ import streamlit as st
 import requests
 import os
 
-# Configuration
-BACKEND_URL = os.getenv("BACKEND_API_URL", "http://localhost:8000")
+# Configuration: Supports both local env vars and Streamlit Cloud secrets
+BACKEND_URL = os.getenv("BACKEND_API_URL")
+if not BACKEND_URL:
+    try:
+        BACKEND_URL = st.secrets.get("BACKEND_API_URL", "http://localhost:8000")
+    except Exception:
+        BACKEND_URL = "http://localhost:8000"
+
 API_BASE = f"{BACKEND_URL}/api/v1"
 
 st.set_page_config(
