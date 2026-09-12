@@ -67,7 +67,9 @@ async def upload_document(
     if filename.endswith(".pdf"):
         try:
             reader = PdfReader(io.BytesIO(content_bytes))
-            for page in reader.pages:
+            # Safe processing for cloud runtimes: cap at first 25 pages
+            pages_to_process = reader.pages[:25]
+            for page in pages_to_process:
                 extracted = page.extract_text()
                 if extracted:
                     raw_text += extracted + "\n"
@@ -89,6 +91,10 @@ async def upload_document(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP
     )
+
+    # Cap chunks for synchronous HTTP request latency and RAM safeguards
+    if len(chunk_texts) > 60:
+        chunk_texts = chunk_texts[:60]
 
     if not chunk_texts:
         raise HTTPException(status_code=400, detail="Document produced zero chunks.")

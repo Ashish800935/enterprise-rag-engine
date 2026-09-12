@@ -42,7 +42,8 @@ class EmbeddingService:
         Embeds a single query string into a 384-dimensional normalized vector.
         """
         model = self._get_model()
-        embedding = model.encode(text, normalize_embeddings=True)
+        with torch.inference_mode():
+            embedding = model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
@@ -53,7 +54,9 @@ class EmbeddingService:
         if not texts:
             return []
         model = self._get_model()
-        embeddings = model.encode(texts, batch_size=32, show_progress_bar=False, normalize_embeddings=True)
+        with torch.inference_mode():
+            embeddings = model.encode(texts, batch_size=16, show_progress_bar=False, normalize_embeddings=True)
+        gc.collect()
         return [emb.tolist() for emb in embeddings]
 
 # Global instance for dependency injection
