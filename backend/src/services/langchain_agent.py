@@ -125,7 +125,7 @@ def run_langchain_agent(db: Session, query: str) -> AgentResponse:
     if settings.GEMINI_API_KEY:
         try:
             llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
+                model="gemini-3.6-flash",
                 google_api_key=settings.GEMINI_API_KEY,
                 temperature=0.1
             )
@@ -139,6 +139,13 @@ def run_langchain_agent(db: Session, query: str) -> AgentResponse:
             # Agent step 1: LLM decides tool call
             ai_msg = llm_with_tools.invoke(messages)
             messages.append(ai_msg)
+
+            def _clean_content(msg_content: Any) -> str:
+                if isinstance(msg_content, str):
+                    return msg_content
+                if isinstance(msg_content, list):
+                    return "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in msg_content)
+                return str(msg_content)
 
             if ai_msg.tool_calls:
                 step_idx = 1
@@ -171,7 +178,7 @@ def run_langchain_agent(db: Session, query: str) -> AgentResponse:
                 final_ai_msg = llm.invoke(messages)
                 return AgentResponse(
                     query=query,
-                    final_answer=final_ai_msg.content,
+                    final_answer=_clean_content(final_ai_msg.content),
                     tools_used=list(set(tools_used)),
                     steps=steps,
                     total_steps=len(steps)
@@ -180,7 +187,7 @@ def run_langchain_agent(db: Session, query: str) -> AgentResponse:
                 # Direct answer without tools
                 return AgentResponse(
                     query=query,
-                    final_answer=ai_msg.content,
+                    final_answer=_clean_content(ai_msg.content),
                     tools_used=[],
                     steps=[],
                     total_steps=0
