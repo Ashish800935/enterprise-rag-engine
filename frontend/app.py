@@ -64,14 +64,23 @@ with st.sidebar:
     
     # 1. System Health Status
     try:
-        health_res = requests.get(f"{API_BASE}/health", timeout=10)
+        health_res = requests.get(f"{API_BASE}/health", timeout=15)
         if health_res.status_code == 200:
             health_data = health_res.json()
-            st.success(f"🟢 **System Online**\n\nDB: `{health_data['database']}`")
+            if "connected" in health_data.get("database", ""):
+                st.success(f"🟢 **System Online**\n\nDB: `{health_data['database']}`")
+            else:
+                st.warning(f"🟡 **DB Reconnecting...**\n\n`{health_data.get('database')}`")
+        elif health_res.status_code in (502, 503, 504):
+            st.info("🟡 **Server Waking Up...**\n\nFree cloud instances sleep after 15m of inactivity. Takes ~25s to wake up.")
+            if st.button("🔄 Refresh Status", use_container_width=True):
+                st.rerun()
         else:
-            st.error("🔴 Backend Error")
+            st.error(f"🔴 Backend Status: {health_res.status_code}")
     except Exception:
-        st.warning("🟡 Backend Connecting / Waking up...")
+        st.info("🟡 **Server Waking Up...**\n\nFree cloud instances sleep after 15m of inactivity. Takes ~25s to wake up.")
+        if st.button("🔄 Refresh Status", use_container_width=True):
+            st.rerun()
 
     st.divider()
 
