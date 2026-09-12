@@ -64,14 +64,14 @@ with st.sidebar:
     
     # 1. System Health Status
     try:
-        health_res = requests.get(f"{API_BASE}/health", timeout=3)
+        health_res = requests.get(f"{API_BASE}/health", timeout=10)
         if health_res.status_code == 200:
             health_data = health_res.json()
             st.success(f"🟢 **System Online**\n\nDB: `{health_data['database']}`")
         else:
             st.error("🔴 Backend Error")
     except Exception:
-        st.warning("🟡 Backend Disconnected (Start FastAPI on port 8000)")
+        st.warning("🟡 Backend Connecting / Waking up...")
 
     st.divider()
 
@@ -84,14 +84,19 @@ with st.sidebar:
     )
 
     if uploaded_file is not None:
+        file_size_mb = uploaded_file.size / (1024 * 1024)
+        if file_size_mb > 15:
+            st.warning(f"⚠️ Large file ({file_size_mb:.1f} MB). Free cloud tier may timeout on files > 15 MB. For best performance, use files under 10 MB.")
+
         if st.button("🚀 Ingest & Index", use_container_width=True):
             with st.spinner("LangChain Text Splitting & Dense Embedding..."):
                 files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
                 try:
-                    res = requests.post(f"{API_BASE}/documents/upload", files=files)
+                    res = requests.post(f"{API_BASE}/documents/upload", files=files, timeout=180)
                     if res.status_code == 201:
                         data = res.json()
                         st.success(f"✅ Indexed **{data['filename']}** ({data['total_chunks']} chunks created)!")
+                        st.rerun()
                     else:
                         st.error(f"Error: {res.text}")
                 except Exception as e:
@@ -102,7 +107,7 @@ with st.sidebar:
     # 3. Document Explorer
     st.subheader("📚 Ingested Documents")
     try:
-        docs_res = requests.get(f"{API_BASE}/documents", timeout=3)
+        docs_res = requests.get(f"{API_BASE}/documents", timeout=10)
         if docs_res.status_code == 200:
             docs = docs_res.json()
             if not docs:
