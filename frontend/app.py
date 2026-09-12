@@ -159,7 +159,7 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
             with st.spinner("Executing LangChain LCEL Chain & Pydantic Structured Output..."):
                 try:
                     payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
-                    res = requests.post(f"{API_BASE}/query/structured", json=payload)
+                    res = requests.post(f"{API_BASE}/query/structured", json=payload, timeout=60)
                     if res.status_code == 200:
                         data = res.json()
                         conf = data["confidence_score"]
@@ -212,7 +212,7 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
             with st.spinner("LangChain ReAct Agent reasoning and executing tools..."):
                 try:
                     payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
-                    res = requests.post(f"{API_BASE}/query/agent", json=payload)
+                    res = requests.post(f"{API_BASE}/query/agent", json=payload, timeout=60)
                     if res.status_code == 200:
                         data = res.json()
                         
@@ -253,7 +253,7 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
             with st.spinner("Executing vector similarity search & LLM synthesis..."):
                 try:
                     payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
-                    res = requests.post(f"{API_BASE}/query", json=payload)
+                    res = requests.post(f"{API_BASE}/query", json=payload, timeout=60)
                     if res.status_code == 200:
                         data = res.json()
                         
