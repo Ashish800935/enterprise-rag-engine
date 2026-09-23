@@ -108,7 +108,13 @@ async def upload_document(
         raise HTTPException(status_code=400, detail="Document produced zero chunks.")
 
     # 3. Batch generate vector embeddings
-    vectors = embedding_service.embed_batch(chunk_texts)
+    try:
+        vectors = embedding_service.embed_batch(chunk_texts)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Embedding failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate embeddings: {str(e)}")
 
     # 4. Save to Database transactionally
     doc = Document(

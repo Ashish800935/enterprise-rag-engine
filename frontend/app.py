@@ -107,7 +107,11 @@ with st.sidebar:
                         st.success(f"✅ Indexed **{data['filename']}** ({data['total_chunks']} chunks created)!")
                         st.rerun()
                     else:
-                        err_detail = res.text if res.text.strip() else f"Backend returned HTTP {res.status_code}. The cloud service may have restarted due to memory limits."
+                        try:
+                            err_json = res.json()
+                            err_detail = err_json.get("detail", res.text)
+                        except Exception:
+                            err_detail = res.text if res.text.strip() else f"Backend returned HTTP {res.status_code}. The cloud service may have restarted due to memory limits."
                         st.error(f"Error: {err_detail}")
                 except Exception as e:
                     st.error(f"Failed to connect to backend: {e}")
