@@ -107,7 +107,8 @@ with st.sidebar:
                         st.success(f"✅ Indexed **{data['filename']}** ({data['total_chunks']} chunks created)!")
                         st.rerun()
                     else:
-                        st.error(f"Error: {res.text}")
+                        err_detail = res.text if res.text.strip() else f"Backend returned HTTP {res.status_code}. The cloud service may have restarted due to memory limits."
+                        st.error(f"Error: {err_detail}")
                 except Exception as e:
                     st.error(f"Failed to connect to backend: {e}")
 
@@ -134,7 +135,7 @@ with st.sidebar:
 
 
 # ----------------- MAIN QUERY CANVAS -----------------
-st.title("🧠 Enterprise Hybrid-RAG Engine")
+st.title("🧠 PostgreSQL Hybrid-RAG Engine")
 st.caption("PostgreSQL `pgvector` + FastAPI + LangChain LCEL & ReAct Tools")
 
 # Mode Switcher

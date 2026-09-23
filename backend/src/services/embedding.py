@@ -50,7 +50,7 @@ class EmbeddingService:
             try:
                 from google.genai import types
                 res = self._genai_client.models.embed_content(
-                    model="gemini-embedding-001",
+                    model="text-embedding-004",
                     contents=text,
                     config=types.EmbedContentConfig(output_dimensionality=settings.EMBEDDING_DIMENSION)
                 )
@@ -68,6 +68,8 @@ class EmbeddingService:
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """
         Batch embeds multiple chunks simultaneously.
+        Uses text-embedding-004 on Google Cloud (0MB RAM) when API key is provided,
+        or lightweight local CPU SentenceTransformer fallback.
         """
         if not texts:
             return []
@@ -76,7 +78,7 @@ class EmbeddingService:
             try:
                 from google.genai import types
                 res = self._genai_client.models.embed_content(
-                    model="gemini-embedding-001",
+                    model="text-embedding-004",
                     contents=texts,
                     config=types.EmbedContentConfig(output_dimensionality=settings.EMBEDDING_DIMENSION)
                 )
@@ -84,11 +86,12 @@ class EmbeddingService:
             except Exception as e:
                 logger.warning(f"Gemini batch embedding call failed, falling back to local model: {e}")
 
-        # Local fallback
+        # Local fallback with low memory footprint
         import torch
         model = self._get_local_model()
+        gc.collect()
         with torch.inference_mode():
-            embeddings = model.encode(texts, batch_size=16, show_progress_bar=False, normalize_embeddings=True)
+            embeddings = model.encode(texts, batch_size=8, show_progress_bar=False, normalize_embeddings=True)
         gc.collect()
         return [emb.tolist() for emb in embeddings]
 

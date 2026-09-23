@@ -67,12 +67,13 @@ async def upload_document(
     if filename.endswith(".pdf"):
         try:
             reader = PdfReader(io.BytesIO(content_bytes))
-            # Safe processing for cloud runtimes: cap at first 25 pages
-            pages_to_process = reader.pages[:25]
+            # Safe processing for cloud runtimes: cap at first 20 pages
+            pages_to_process = reader.pages[:20]
             for page in pages_to_process:
                 extracted = page.extract_text()
                 if extracted:
                     raw_text += extracted + "\n"
+            del reader
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse PDF: {str(e)}")
     else:
@@ -81,6 +82,11 @@ async def upload_document(
             raw_text = content_bytes.decode("utf-8")
         except UnicodeDecodeError:
             raw_text = content_bytes.decode("latin-1")
+
+    # Immediately release raw file bytes from memory
+    del content_bytes
+    import gc
+    gc.collect()
 
     if not raw_text.strip():
         raise HTTPException(status_code=400, detail="Could not extract readable text from document.")
@@ -91,10 +97,12 @@ async def upload_document(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP
     )
+    del raw_text
+    gc.collect()
 
-    # Cap chunks for synchronous HTTP request latency and RAM safeguards
-    if len(chunk_texts) > 60:
-        chunk_texts = chunk_texts[:60]
+    # Cap chunks for synchronous cloud runtimes (e.g. Render 512MB RAM tier)
+    if len(chunk_texts) > 40:
+        chunk_texts = chunk_texts[:40]
 
     if not chunk_texts:
         raise HTTPException(status_code=400, detail="Document produced zero chunks.")

@@ -1,5 +1,6 @@
 # PostgreSQL Hybrid-RAG Engine
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit%20Cloud-FF4B4B.svg?style=flat-square)](https://enterprise-hybrid-rag-akk.streamlit.app)
 [![Backend CI](https://github.com/Ashish800935/enterprise-rag-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Ashish800935/enterprise-rag-engine/actions)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB.svg?style=flat-square)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688.svg?style=flat-square)](https://fastapi.tiangolo.com/)
@@ -10,6 +11,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
 A self-hosted, full-stack Retrieval-Augmented Generation (RAG) prototype built with **PostgreSQL (`pgvector`)**, **FastAPI**, **LangChain**, and **Streamlit**.
+
+> **Live Demo:** Try the deployed dashboard at [enterprise-hybrid-rag-akk.streamlit.app](https://enterprise-hybrid-rag-akk.streamlit.app)
 
 ![Streamlit UI Dashboard](assets/streamlit_ui_preview.png)
 
