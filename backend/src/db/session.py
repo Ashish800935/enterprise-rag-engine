@@ -13,10 +13,24 @@ if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
 elif db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
 
+is_remote_db = any(domain in db_url for domain in ["supabase.com", "pooler", "amazonaws.com", "render.com"])
+
+connect_args = {}
+if is_remote_db:
+    connect_args = {
+        "sslmode": "require",
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+        "connect_timeout": 15
+    }
+
 engine = create_engine(
     db_url,
+    connect_args=connect_args,
     pool_pre_ping=True,
-    pool_recycle=300,
+    pool_recycle=60,
     pool_size=5,
     max_overflow=10
 )
