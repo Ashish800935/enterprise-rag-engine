@@ -19,3 +19,4 @@ langchain-community>=0.4.2
 langchain-text-splitters>=1.1.2
 langchain-google-genai>=4.4.0
 duckduckgo-search>=8.0.0
+pytest>=8.0.0

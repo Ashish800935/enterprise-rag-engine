@@ -65,3 +65,8 @@ htmlcov/
 # Logs and databases
 *.log
 postgres_data/
+
+# Local Project Reports & Presentations (Never push to GitHub)
+project_reports/
+*.pptx
+*.docx
