@@ -12,8 +12,29 @@ if not BACKEND_URL:
 
 API_BASE = f"{BACKEND_URL}/api/v1"
 
+# Reusable HTTP Session with proper API Client headers (prevents Cloudflare bot blocking)
+SESSION = requests.Session()
+SESSION.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json"
+})
+
+def format_error_response(res: requests.Response) -> str:
+    """Parses API errors and converts Cloudflare / Rate limit HTML into clean human explanations."""
+    if res.status_code == 429:
+        return "Rate limit exceeded (HTTP 429): The server received too many requests in a short time. Please wait 1-2 minutes before trying again."
+    if "<!DOCTYPE" in res.text or "<html" in res.text:
+        if "Just a moment" in res.text or "challenges.cloudflare.com" in res.text:
+            return "Cloudflare Bot Protection: The cloud server is waking up or experiencing high traffic. Please wait 1-2 minutes and refresh."
+        return f"Server returned unexpected HTML response (HTTP {res.status_code}). The cloud service may be waking up from sleep."
+    try:
+        data = res.json()
+        return data.get("detail", res.text)
+    except Exception:
+        return res.text if res.text.strip() else f"Backend returned HTTP {res.status_code}."
+
 st.set_page_config(
-    page_title="Enterprise Hybrid-RAG Engine",
+    page_title="PostgreSQL Hybrid-RAG Engine",
     page_icon="🧠",
     layout="wide"
 )
@@ -58,28 +79,52 @@ st.markdown("""
 if "search_query" not in st.session_state:
     st.session_state.search_query = ""
 
+# Cached health check to prevent spamming Render / Cloudflare on every UI rerun
+@st.cache_data(ttl=25, show_spinner=False)
+def get_cached_health():
+    try:
+        r = SESSION.get(f"{API_BASE}/health", timeout=12)
+        return r.status_code, r.text
+    except Exception as e:
+        return 0, str(e)
+
+@st.cache_data(ttl=15, show_spinner=False)
+def get_cached_documents():
+    try:
+        r = SESSION.get(f"{API_BASE}/documents", timeout=10)
+        if r.status_code == 200:
+            return r.json()
+        return None
+    except Exception:
+        return None
+
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
     st.title("⚙️ Knowledge Base")
     
     # 1. System Health Status
-    try:
-        health_res = requests.get(f"{API_BASE}/health", timeout=15)
-        if health_res.status_code == 200:
-            health_data = health_res.json()
+    h_code, h_body = get_cached_health()
+    if h_code == 200:
+        import json
+        try:
+            health_data = json.loads(h_body)
             if "connected" in health_data.get("database", ""):
                 st.success(f"🟢 **System Online**\n\nDB: `{health_data['database']}`")
             else:
                 st.warning(f"🟡 **DB Reconnecting...**\n\n`{health_data.get('database')}`")
-        elif health_res.status_code in (502, 503, 504):
-            st.info("🟡 **Server Waking Up...**\n\nFree cloud instances sleep after 15m of inactivity. Takes ~25s to wake up.")
-            if st.button("🔄 Refresh Status", use_container_width=True):
-                st.rerun()
-        else:
-            st.error(f"🔴 Backend Status: {health_res.status_code}")
-    except Exception:
+        except Exception:
+            st.success("🟢 **System Online**")
+    elif h_code in (502, 503, 504):
         st.info("🟡 **Server Waking Up...**\n\nFree cloud instances sleep after 15m of inactivity. Takes ~25s to wake up.")
         if st.button("🔄 Refresh Status", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    elif h_code == 429:
+        st.warning("⏳ **Cloudflare Cooldown:** Too many requests. Waiting ~1 min...")
+    else:
+        st.info("🟡 **Server Connecting...**")
+        if st.button("🔄 Refresh Status", use_container_width=True):
+            st.cache_data.clear()
             st.rerun()
 
     st.divider()
@@ -101,18 +146,14 @@ with st.sidebar:
             with st.spinner("LangChain Text Splitting & Dense Embedding..."):
                 files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
                 try:
-                    res = requests.post(f"{API_BASE}/documents/upload", files=files, timeout=180)
+                    res = SESSION.post(f"{API_BASE}/documents/upload", files=files, timeout=180)
                     if res.status_code == 201:
                         data = res.json()
                         st.success(f"✅ Indexed **{data['filename']}** ({data['total_chunks']} chunks created)!")
+                        st.cache_data.clear()
                         st.rerun()
                     else:
-                        try:
-                            err_json = res.json()
-                            err_detail = err_json.get("detail", res.text)
-                        except Exception:
-                            err_detail = res.text if res.text.strip() else f"Backend returned HTTP {res.status_code}. The cloud service may have restarted due to memory limits."
-                        st.error(f"Error: {err_detail}")
+                        st.error(f"Error: {format_error_response(res)}")
                 except Exception as e:
                     st.error(f"Failed to connect to backend: {e}")
 
@@ -120,22 +161,21 @@ with st.sidebar:
 
     # 3. Document Explorer
     st.subheader("📚 Ingested Documents")
-    try:
-        docs_res = requests.get(f"{API_BASE}/documents", timeout=10)
-        if docs_res.status_code == 200:
-            docs = docs_res.json()
-            if not docs:
-                st.info("No documents uploaded yet.")
-            for doc in docs:
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"📄 **{doc['filename']}** ({doc['total_chunks']} chunks)")
-                with col2:
-                    if st.button("🗑️", key=f"del_{doc['id']}", help="Delete document & vector chunks"):
-                        requests.delete(f"{API_BASE}/documents/{doc['id']}")
-                        st.rerun()
-    except Exception:
-        pass
+    docs = get_cached_documents()
+    if docs is not None:
+        if not docs:
+            st.info("No documents uploaded yet.")
+        for doc in docs:
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.write(f"📄 **{doc['filename']}** ({doc['total_chunks']} chunks)")
+            with col2:
+                if st.button("🗑️", key=f"del_{doc['id']}", help="Delete document & vector chunks"):
+                    SESSION.delete(f"{API_BASE}/documents/{doc['id']}")
+                    st.cache_data.clear()
+                    st.rerun()
+    else:
+        st.caption("Waiting for documents list...")
 
 
 # ----------------- MAIN QUERY CANVAS -----------------
@@ -173,7 +213,7 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
             with st.spinner("Executing LangChain LCEL Chain & Pydantic Structured Output..."):
                 try:
                     payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
-                    res = requests.post(f"{API_BASE}/query/structured", json=payload, timeout=60)
+                    res = SESSION.post(f"{API_BASE}/query/structured", json=payload, timeout=60)
                     if res.status_code == 200:
                         data = res.json()
                         conf = data["confidence_score"]
@@ -217,7 +257,7 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
                                     st.session_state.search_query = follow_up
                                     st.rerun()
                     else:
-                        st.error(f"Backend returned error: {res.text}")
+                        st.error(f"Backend returned error: {format_error_response(res)}")
                 except Exception as e:
                     st.error(f"Could not reach backend API: {e}")
 
@@ -226,7 +266,7 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
             with st.spinner("LangChain ReAct Agent reasoning and executing tools..."):
                 try:
                     payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
-                    res = requests.post(f"{API_BASE}/query/agent", json=payload, timeout=60)
+                    res = SESSION.post(f"{API_BASE}/query/agent", json=payload, timeout=60)
                     if res.status_code == 200:
                         data = res.json()
                         
@@ -258,7 +298,7 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
                         st.subheader("🤖 Final Agent Answer")
                         st.markdown(data["final_answer"])
                     else:
-                        st.error(f"Backend returned error: {res.text}")
+                        st.error(f"Backend returned error: {format_error_response(res)}")
                 except Exception as e:
                     st.error(f"Could not reach backend API: {e}")
 
@@ -267,7 +307,7 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
             with st.spinner("Executing vector similarity search & LLM synthesis..."):
                 try:
                     payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid}
-                    res = requests.post(f"{API_BASE}/query", json=payload, timeout=60)
+                    res = SESSION.post(f"{API_BASE}/query", json=payload, timeout=60)
                     if res.status_code == 200:
                         data = res.json()
                         
@@ -288,6 +328,6 @@ if st.button("🔎 Execute Query", type="primary", use_container_width=True):
                                 st.markdown(f"**Document ID:** `{src['document_id']}` | **Chunk ID:** `{src['chunk_id']}`")
                                 st.info(src["content"])
                     else:
-                        st.error(f"Backend returned error: {res.text}")
+                        st.error(f"Backend returned error: {format_error_response(res)}")
                 except Exception as e:
                     st.error(f"Could not reach backend API: {e}")
