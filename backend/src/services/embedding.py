@@ -49,6 +49,24 @@ class EmbeddingService:
             gc.collect()
         return cls._local_model
 
+    def _call_gemini_embed(self, client, text: str) -> List[float]:
+        """Calls Gemini embedding with gemini-embedding-001 (fallback to embedding-001)."""
+        from google.genai import types
+        models_to_try = ["gemini-embedding-001", "embedding-001"]
+        last_err = None
+        for m in models_to_try:
+            try:
+                res = client.models.embed_content(
+                    model=m,
+                    contents=text,
+                    config=types.EmbedContentConfig(output_dimensionality=settings.EMBEDDING_DIMENSION)
+                )
+                return res.embeddings[0].values
+            except Exception as e:
+                last_err = e
+                continue
+        raise last_err or RuntimeError("No compatible Gemini embedding model found.")
+
     def embed_text(self, text: str) -> List[float]:
         """
         Embeds a single query string into a 384-dimensional vector.
@@ -57,13 +75,7 @@ class EmbeddingService:
         client = self._get_genai_client()
         if client:
             try:
-                from google.genai import types
-                res = client.models.embed_content(
-                    model="text-embedding-004",
-                    contents=text,
-                    config=types.EmbedContentConfig(output_dimensionality=settings.EMBEDDING_DIMENSION)
-                )
-                return res.embeddings[0].values
+                return self._call_gemini_embed(client, text)
             except Exception as e:
                 logger.error(f"Gemini embedding call failed: {e}")
                 if os.getenv("RENDER"):
@@ -82,7 +94,7 @@ class EmbeddingService:
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """
         Batch embeds multiple chunks simultaneously.
-        Uses text-embedding-004 on Google Cloud (0MB RAM) when API key is provided,
+        Uses gemini-embedding-001 on Google Cloud (0MB RAM) when API key is provided,
         or lightweight local CPU SentenceTransformer fallback on local machines.
         """
         if not texts:
@@ -91,15 +103,10 @@ class EmbeddingService:
         client = self._get_genai_client()
         if client:
             try:
-                from google.genai import types
                 results = []
                 for chunk in texts:
-                    res = client.models.embed_content(
-                        model="text-embedding-004",
-                        contents=chunk,
-                        config=types.EmbedContentConfig(output_dimensionality=settings.EMBEDDING_DIMENSION)
-                    )
-                    results.append(res.embeddings[0].values)
+                    vec = self._call_gemini_embed(client, chunk)
+                    results.append(vec)
                 return results
             except Exception as e:
                 logger.error(f"Gemini batch embedding call failed: {e}")
