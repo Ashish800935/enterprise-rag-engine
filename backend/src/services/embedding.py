@@ -67,6 +67,46 @@ class EmbeddingService:
                 continue
         raise last_err or RuntimeError("No compatible Gemini embedding model found.")
 
+    def _call_gemini_embed_batch(self, client, texts: List[str]) -> List[List[float]]:
+        """
+        Embeds multiple text chunks in efficient batches using gemini-embedding-001.
+        Batches up to 15 chunks per request to prevent timeouts and RPM throttling.
+        """
+        from google.genai import types
+        models_to_try = ["gemini-embedding-001", "embedding-001"]
+        batch_size = 15
+        all_embeddings: List[List[float]] = []
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            batch_success = False
+            last_err = None
+
+            for m in models_to_try:
+                try:
+                    res = client.models.embed_content(
+                        model=m,
+                        contents=batch,
+                        config=types.EmbedContentConfig(output_dimensionality=settings.EMBEDDING_DIMENSION)
+                    )
+                    if res.embeddings:
+                        for emb in res.embeddings:
+                            all_embeddings.append(emb.values)
+                        batch_success = True
+                        break
+                except Exception as e:
+                    last_err = e
+                    continue
+
+            # Fallback to single-chunk calls if batch format is rejected
+            if not batch_success:
+                logger.warning(f"Batch embed call failed ({last_err}), falling back to single-chunk embedding.")
+                for single_chunk in batch:
+                    vec = self._call_gemini_embed(client, single_chunk)
+                    all_embeddings.append(vec)
+
+        return all_embeddings
+
     def embed_text(self, text: str) -> List[float]:
         """
         Embeds a single query string into a 384-dimensional vector.
@@ -103,11 +143,7 @@ class EmbeddingService:
         client = self._get_genai_client()
         if client:
             try:
-                results = []
-                for chunk in texts:
-                    vec = self._call_gemini_embed(client, chunk)
-                    results.append(vec)
-                return results
+                return self._call_gemini_embed_batch(client, texts)
             except Exception as e:
                 logger.error(f"Gemini batch embedding call failed: {e}")
                 if os.getenv("RENDER"):

@@ -4,8 +4,11 @@ from sqlalchemy import text
 from typing import List
 import time
 import io
+import logging
 from datetime import datetime
 from pypdf import PdfReader
+
+logger = logging.getLogger("rag.routes")
 
 from src.db.session import get_db
 from src.db.models import Document, DocumentChunk

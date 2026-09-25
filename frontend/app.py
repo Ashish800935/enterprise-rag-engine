@@ -91,12 +91,12 @@ def get_cached_health():
 @st.cache_data(ttl=15, show_spinner=False)
 def get_cached_documents():
     try:
-        r = SESSION.get(f"{API_BASE}/documents", timeout=10)
+        r = SESSION.get(f"{API_BASE}/documents", timeout=15)
         if r.status_code == 200:
-            return r.json()
-        return None
-    except Exception:
-        return None
+            return r.json(), None
+        return [], f"HTTP {r.status_code}"
+    except Exception as e:
+        return [], str(e)
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
@@ -160,22 +160,37 @@ with st.sidebar:
     st.divider()
 
     # 3. Document Explorer
-    st.subheader("📚 Ingested Documents")
-    docs = get_cached_documents()
-    if docs is not None:
-        if not docs:
-            st.info("No documents uploaded yet.")
+    doc_header_col1, doc_header_col2 = st.columns([3, 1])
+    with doc_header_col1:
+        st.subheader("📚 Ingested Documents")
+    with doc_header_col2:
+        if st.button("🔄", key="refresh_docs_btn", help="Refresh document list"):
+            st.cache_data.clear()
+            st.rerun()
+
+    docs, docs_err = get_cached_documents()
+    if docs:
         for doc in docs:
             col1, col2 = st.columns([4, 1])
             with col1:
                 st.write(f"📄 **{doc['filename']}** ({doc['total_chunks']} chunks)")
             with col2:
                 if st.button("🗑️", key=f"del_{doc['id']}", help="Delete document & vector chunks"):
-                    SESSION.delete(f"{API_BASE}/documents/{doc['id']}")
-                    st.cache_data.clear()
-                    st.rerun()
+                    with st.spinner("Deleting..."):
+                        try:
+                            del_res = SESSION.delete(f"{API_BASE}/documents/{doc['id']}", timeout=25)
+                            if del_res.status_code in (200, 204):
+                                st.toast(f"Deleted {doc['filename']}", icon="🗑️")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error(f"Failed to delete: HTTP {del_res.status_code}")
+                        except Exception as e:
+                            st.error(f"Delete failed: {e}")
+    elif docs_err:
+        st.caption(f"Waiting for documents list: {docs_err}")
     else:
-        st.caption("Waiting for documents list...")
+        st.info("No documents uploaded yet.")
 
 
 # ----------------- MAIN QUERY CANVAS -----------------
